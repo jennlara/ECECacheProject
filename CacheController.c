@@ -62,6 +62,7 @@ typedef struct my_cache {
     unsigned int LRU;		// LRU bits
     char MESI;			// MESI bits
     unsigned char data[64];	// 64 bytes of data
+	unsigned int address; 	//address
 }CACHE;
 
 /* Keep track of the Cache hits and misses */
@@ -201,6 +202,7 @@ void reset_cache_controller(void)
     	data_cache[i].tag = 0;
 	data_cache[i].LRU = 0;
   	data_cache[i].MESI = 'I';
+       data_cache[i].address = 0;
     }
       
     return;
@@ -277,6 +279,7 @@ int read(unsigned int addr)
 	data_cache[slot].tag = tag;
 	data_cache[slot].MESI = 'E';
 	LRU_data_update(slot);
+    data_cache[slot].address = addr;
     }
     else {		    // no gap then search for hit/miss
 	slot = matching_tag_data(tag);	// Search for a matching tag first
@@ -289,16 +292,18 @@ int read(unsigned int addr)
             {	data_cache[slot].tag = tag;
 				data_cache[slot].MESI = 'E';
 				LRU_data_update(slot);
+             	data_cache[slot].address = addr;
             }
           	else
             {
-              printf("LRU data is invalid")
+              printf("LRU data is invalid");
             }
 	    }
 	    else {		// Else, evict the invalid member
 		data_cache[slot].tag = tag;
 		data_cache[slot].MESI = 'E';
-		LRU_data_update(slot);        	
+		LRU_data_update(slot);  
+         data_cache[slot].address = addr;
 	    }
 	}
 	else {	// Hit
@@ -307,21 +312,27 @@ printf("\nHit");
 		case 'M':data_cache[slot].tag = tag;
 		    data_cache[slot].MESI = 'M';
 		    LRU_data_update(slot);
+            data_cache[slot].address = addr;
+
+
 		break;
 	    
 		case 'E':data_cache[slot].tag = tag;
 		    data_cache[slot].MESI = 'S'; // According to TA
 		    LRU_data_update(slot);
+            data_cache[slot].address = addr;
 		break;
 	      
 		case 'S':data_cache[slot].tag = tag;
 		    data_cache[slot].MESI = 'S';
 		    LRU_data_update(slot);
+            data_cache[slot].address = addr;
 		break;
 	    
 		case 'I':data_cache[slot].tag = tag;
 		    data_cache[slot].MESI = 'S';
 		    LRU_data_update(slot);
+            data_cache[slot].address = addr;
 		break;
             }
         }
@@ -342,58 +353,71 @@ int write(unsigned int addr)
     unsigned int slot;		// Set from the cache line
     int i = 0;
 
-    tag = addr >> (BYTE + SET);	// Get the cache tag
+    // Cast the tag here so we can search the tag hit
+    tag = addr >> (BYTE + SET);
 
-    // Check for an empty set
-    while ((i < 8) && !(data_cache[i++].tag == 0)) {}
-
-    // If there is an empty position, use it first 
-    if (i < 8) {
-	data_cache[i].tag = tag;
-	data_cache[i].MESI = 'M';
-	LRU_data_update(i);    
+    // Check for an empty set in the cache line
+    for (i = 0; i < 8; ++i) {
+	// Check for an empty set
+	if (data_cache[i].tag == 0)
+	    slot = i;
     }
-    else { // Else, there is no gap, so search for hit/miss
-	slot = matching_tag_data(tag);
-	if ((slot) < 0) {		// Miss
+
+    // Place the empty position 
+    if (slot >= 0) {
+	data_cache[slot].tag = tag;
+	data_cache[slot].MESI = 'M';
+	LRU_data_update(slot);
+    }
+     else {		    // no gap then search for hit/miss
+	slot = matching_tag_data(tag);	// Search for a matching tag first
+	if (slot < 0) {  // Miss
 	    // Check for a line with an invalid state to evict
 	    slot = check_for_invalid_MESI_data();
-	    if (slot < 0) {		// No invalid states, evict LRU
-		slot = search_LRU_data();   // Find the LRU to replace
-		data_cache[slot].tag = tag;
-		data_cache[slot].MESI = 'M';
-		LRU_data_update(slot);
+	    if (slot < 0) { 	// If no invalid states, evict LRU
+		slot = search_LRU_data();
+        	if (slot>=0)
+            {	data_cache[slot].tag = tag;
+				data_cache[slot].MESI = 'M';
+				LRU_data_update(slot);
+            }
+          	else
+            {
+              printf("LRU data is invalid");
+            }
 	    }
-	    else {			// Evict the invalid member
+	    else {		// Else, evict the invalid member
 		data_cache[slot].tag = tag;
 		data_cache[slot].MESI = 'M';
 		LRU_data_update(slot);        	
 	    }
 	}
-	else {		// Hit
+	else {	// Hit
+printf("\nHit");
 	    switch (data_cache[slot].MESI) {
-		case 'E':data_cache[slot].tag = tag;
-		    data_cache[slot].MESI = 'M'; 
-		    LRU_data_update(slot);
-		break;
-		
 		case 'M':data_cache[slot].tag = tag;
 		    data_cache[slot].MESI = 'M';
 		    LRU_data_update(slot);
 		break;
-		  
+	    
+		case 'E':data_cache[slot].tag = tag;
+		    data_cache[slot].MESI = 'M'; // According to TA
+		    LRU_data_update(slot);
+		break;
+	      
 		case 'S':data_cache[slot].tag = tag;
 		    data_cache[slot].MESI = 'E';
 		    LRU_data_update(slot);
 		break;
-		
+	    
 		case 'I':data_cache[slot].tag = tag;
 		    data_cache[slot].MESI = 'E';
 		    LRU_data_update(slot);
 		break;
-	    }
-	}
+            }
+        }
     }
+
     return 0;
 }
 
@@ -427,15 +451,13 @@ int matching_tag_data(unsigned int tag)
     while (data_cache[i].tag!=tag)
 	{
 		i++;
+    	if (i >7)
+		{
+			return -1;
+		} 
 	}
-	if (i >7)
-	{
-		return -1;
-	}
-    	else
-	{
-		return i;
-	}
+  	return i;
+	
 }                   
   
   
@@ -451,9 +473,19 @@ int matching_tag_data(unsigned int tag)
 int matching_tag_inst(unsigned int tag)  
 {
     int i = 0;
-    while ((i < 4) && instruction_cache[i++].tag != tag) {}
-
-    return (i > 3) ? -1 : i;
+  //  while ((i < 8) && (data_cache[i].tag != tag)) {
+   // 	++i;
+   // }
+  
+    while (instruction_cache[i].tag!=tag)
+	{
+		i++;
+    	if (i >3)
+		{
+			return -1;
+		} 
+	}
+  	return i;
 }
                         
 /* Search for Invalid MESI states within a set
@@ -478,7 +510,7 @@ int check_for_invalid_MESI_data(void)
 int check_for_invalid_MESI_inst(void)
 {
     for (int i = 0; i < 4; ++i) {
-	if (data_cache[i].MESI == 'I')
+	if (instruction_cache[i].MESI == 'I')
 	    return i;
     }
 
@@ -531,9 +563,9 @@ void print_cache(unsigned int addr)
     printf("Mode 1: Information from Mode 0 and messages to L2. Only input a number. \n");
     scanf("Mode: %d", &mode);
     for (i = 0; i < 8; ++i) {
-	printf("\n---------------------------\n");
-	printf("-----Cache Information-----\n");
-	printf("Tag : %u LRU: %u MESI State: %c \n", data_cache[i].tag, data_cache[i].LRU, data_cache[i].MESI);	//Tag,LRU,MESI bits
+	printf("\n------------------------------------------\n");
+	printf("-------------Cache Information--------------\n");
+	printf("Address: %x Tag : %u LRU: %u MESI State: %c \n", data_cache[i].address, data_cache[i].tag, data_cache[i].LRU, data_cache[i].MESI);	//Tag,LRU,MESI bits
     }
 
 
@@ -567,14 +599,14 @@ int fetch(unsigned int addr)
     // Check for an empty set in the cache line
     for (i = 0; i < 4; ++i) {
 	// Check for an empty set
-	if (data_cache[i].tag == 0)
+	if (instruction_cache[i].tag == 0)
 	    slot = i;
     }
 
     // Place the empty position 
     if (slot >= 0) {
-	data_cache[slot].tag = tag;
-	data_cache[slot].MESI = 'E';
+	instruction_cache[slot].tag = tag;
+	instruction_cache[slot].MESI = 'E';
 	LRU_data_update(slot);
     }
     else { // no gap then search for hit/miss
@@ -596,25 +628,25 @@ int fetch(unsigned int addr)
 	}
 	else {				// Else, there was a hit
 	    switch (instruction_cache[slot].MESI) {
-		case 'M':instruction_cache[slot].tag = tag;
-		    instruction_cache[slot].MESI = 'S'; //not for sure, according to TA???
-		    LRU_instruction_update(slot);
-		break;
-	    
-		case 'E':instruction_cache[slot].tag = tag;
-		    instruction_cache[slot].MESI = 'M';
-		    LRU_instruction_update(slot);
-		break;
-	      
-		case 'S':instruction_cache[slot].tag = tag;
-		    instruction_cache[slot].MESI = 'S';
-		    LRU_instruction_update(slot);
-		break;
-	    
-		case 'I':instruction_cache[slot].tag = tag;
-		    instruction_cache[slot].MESI = 'S';
-		    LRU_instruction_update(slot);
-		break;
+          case 'M':instruction_cache[slot].tag = tag;
+              instruction_cache[slot].MESI = 'M';
+              LRU_instruction_update(slot);
+          break;
+
+          case 'E':instruction_cache[slot].tag = tag;
+              instruction_cache[slot].MESI = 'S';		// According to TA
+              LRU_instruction_update(slot);
+          break;
+
+          case 'S':instruction_cache[slot].tag = tag;
+              instruction_cache[slot].MESI = 'S';
+              LRU_instruction_update(slot);
+          break;
+
+          case 'I':instruction_cache[slot].tag = tag;
+              instruction_cache[slot].MESI = 'S';
+              LRU_instruction_update(slot);
+          break;
             }
         }
     }
